@@ -615,33 +615,35 @@ def conv_backward_naive(dout, cache):
 
     N, C, H, W = x.shape
     F, _, HH, WW = w.shape
-    
+    _, _, H_, W_ = dout.shape
     dx = np.zeros_like(x)
     dw = np.zeros_like(w)
-    db = np.sum(dout, axis = (0, 2 ,3))
+    db = np.zeros_like(b)
 
-    dh = 1 + (H + 2 * pad - HH)/ float(stride)
-    dw = 1 + (W + 2 * pad - WW)/ float(stride) 
+    # Pad x
+    x_pad = np.pad(x, ((0,), (0,), (pad,), (pad,)), mode='constant')
+
+    # Pad dx
+    dx_pad = np.pad(dx, ((0,), (0,), (pad,), (pad,)), mode='constant')
 
     for n in range(N):
         for f in range(F):
-            for dhh in range(dh):
-              for dww in range(dw):
-                    row_start = dhh * stride
-                    row_end = row_start + HH
-                    col_start = dww * stride
-                    col_end = col_start + WW
+            for dhh in range(H_):
+              for dww in range(W_):
+                row_start = dhh * stride
+                row_end = row_start + HH
+                col_start = dww * stride
+                col_end = col_start + WW
 
-                    # calculating dx (slice of dx from start to end is dout in dhh dww multiply the same weights filter)
-                    dx[n, :, row_start: row_end, col_start: col_end] += dout[n, f, dhh, dww] * w[f, :, :, :]
+                dx_pad[n, :, row_start: row_end, col_start: col_end] += dout[n, f, dhh, dww] * w[f, :, :, :]
 
-                    # Calculate dw (slice of dw from start to end is dout in dhh dww multiplied by the same input slice)
-                    dw[f, :, :, :] += dout[n, f, dhh, dww] * x[n, :, row_start: row_end, col_start: col_end]
-
+                dw[f, :, :, :] += dout[n, f, dhh, dww] * x_pad[n, :, row_start: row_end, col_start: col_end]
+                db[f] += dout[n, f, dhh, dww]
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
+    dx = dx_pad[:, :, pad:-pad, pad:-pad]
     return dx, dw, db
 
 
@@ -684,9 +686,9 @@ def max_pool_forward_naive(x, pool_param):
             for ht in range(htag):
                 for wt in range(wtag):
                   row_start = ht * stride
-                  row_end = row_start + stride
+                  row_end = row_start + pool_height
                   col_start = wt * stride
-                  col_end = col_start + stride
+                  col_end = col_start + pool_width
                   x_slice = x[n, c, row_start: row_end, col_start: col_end]
                   out[n,c,ht,wt] = np.max(x_slice)
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -696,6 +698,46 @@ def max_pool_forward_naive(x, pool_param):
     cache = (x, pool_param)
     return out, cache
 
+# def max_pool_backward_naive(dout, cache):
+#     """
+#     A naive implementation of the backward pass for a max-pooling layer.
+
+#     Inputs:
+#     - dout: Upstream derivatives
+#     - cache: A tuple of (x, pool_param) as in the forward pass.
+
+#     Returns:
+#     - dx: Gradient with respect to x
+#     """
+#     dx = None
+#     ###########################################################################
+#     # TODO: Implement the max-pooling backward pass                           #
+#     ###########################################################################
+#     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+
+#     x, pool_param = cache
+#     dx = np.zeros_like(x)
+
+#     N, C, H, W = x.shape
+#     stride = pool_param.get('stride', 1)
+#     pool_height = pool_param.get('pool_height', 1)
+#     pool_width = pool_param.get('pool_width', 1)
+#     h_out = 1 + (H - pool_height) // stride
+#     w_out = 1 + (W - pool_width) // stride
+
+#     for n in range(N):
+#         for c in range(C):
+#             for h in range(h_out):
+#                 for w in range(w_out):
+#                     x_slice = x[n, c, h*stride:h*stride+pool_height, w*stride:w*stride+pool_width]
+#                     ix = np.unravel_index(np.argmax(x_slice, axis=None), x_slice.shape)
+#                     dx[n, c, h*stride+ix[0], w*stride+ix[1]] += dout[n, c, h, w]
+
+#     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+#     ###########################################################################
+#     #                             END OF YOUR CODE                            #
+#     ###########################################################################
+#     return dx
 
 def max_pool_backward_naive(dout, cache):
     """A naive implementation of the backward pass for a max-pooling layer.
@@ -726,11 +768,11 @@ def max_pool_backward_naive(dout, cache):
             for ht in range(htag):
                 for wt in range(wtag):
                     row_start = ht * stride
-                    row_end = row_start + stride
+                    row_end = row_start + pool_height
                     col_start = wt * stride
-                    col_end = col_start + stride
-                    x_slice =   x[n, c, row_start: row_end, col_start: col_end].reshape(1, C, -1)
-                    d1, d2 = np.unravel_index(np.argmax(x_slice, axis=2), (htag, wtag))
+                    col_end = col_start + pool_width
+                    x_slice =   x[n, c, row_start: row_end, col_start: col_end]
+                    d1, d2 = np.unravel_index(np.argmax(x_slice, axis=None), x_slice.shape)
                     dx[n, c,row_start + d1, col_start + d2] += dout[n, c, ht, wt]
                     
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
