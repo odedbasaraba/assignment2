@@ -889,24 +889,27 @@ def spatial_groupnorm_forward(x, gamma, beta, G, gn_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     N, C, H, W = x.shape
-
-    # reshape x to have g groups for n samples and we use c //g to for each group equal number of channels
     x = np.reshape(x, (N*G, C//G*H*W))
-    xT = x.T
+    
+    # Transpose x to use batchnorm code
+    x = x.T
 
-    feature_mean = np.mean(xT, axis = 0) # feature mean (D,)
-    feature_var = np.var(xT, axis = 0) # feature variance (D,)
+    # Just copy from batch normalization cdoe
+    mu = np.mean(x, axis=0)
     
-    scaled_xT = xT - feature_mean
-    normalize_xT = (xT - feature_mean)/np.sqrt(feature_var + eps)
-  
-    normalize_x = normalize_xT.T
-    scaled_x = scaled_xT.T
+    xmu = x - mu
+    sq = xmu ** 2
+    var = np.var(x, axis=0)
+
+    sqrtvar = np.sqrt(var + eps)
+    ivar = 1./sqrtvar
+    xhat = xmu * ivar
     
-    scaled_x = scaled_x.reshape((N, C, H, W))
-    out = gamma * normalize_x + beta  
-    
-    cache = (scaled_x, normalize_x, gamma, 1./np.sqrt(feature_var + eps), np.sqrt(feature_var + eps), G)
+    # Transform xhat and reshape
+    xhat = np.reshape(xhat.T, (N, C, H, W))
+    out = gamma[np.newaxis, :, np.newaxis, np.newaxis] * xhat + beta[np.newaxis, :, np.newaxis, np.newaxis]
+
+    cache = (xhat, gamma, xmu, ivar, sqrtvar, var, eps, G)
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -935,12 +938,24 @@ def spatial_groupnorm_backward(dout, cache):
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
     N, C, H, W = dout.shape
-    scaled_x, normalized_x, gamma, ivar, sqrtvar, G = cache
-    dbeta  = np.sum(dout, axis = 0)
-    dgamma = np.sum(dout * normalized_x, axis = 0)
-    dout= dout.reshape((N*G, C//G*H*W))
-    dx = (1 / (N * G)) * gamma * ivar * (N * G * dout - np.sum(dout, axis = 0) - scaled_x * np.sum(dout * scaled_x, axis = 0))
-    dx = dx.reshape((N, C, H, W))
+
+    xhat, gamma, xmu, ivar, sqrtvar, var, eps, G = cache
+
+    dxhat = dout * gamma[np.newaxis, :, np.newaxis, np.newaxis]
+
+    # Set keepdims=True to make dbeta and dgamma's shape be (1, C, 1, 1)
+    dbeta = np.sum(dout, axis=(0, 2, 3), keepdims=True)
+    dgamma = np.sum(dout*xhat, axis=(0, 2, 3), keepdims=True)
+
+    # Reshape and transpose back
+    dxhat = np.reshape(dxhat, (N*G, C//G*H*W)).T
+    xhat = np.reshape(xhat, (N*G, C//G*H*W)).T
+
+    Nprime, Dprime = dxhat.shape
+    
+    dx = 1.0/Nprime * ivar * (Nprime*dxhat - np.sum(dxhat, axis=0) - xhat*np.sum(dxhat*xhat, axis=0))
+
+    dx = np.reshape(dx.T, (N, C, H, W))
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
